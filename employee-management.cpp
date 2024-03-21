@@ -15,26 +15,131 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
+#include <stdlib.h>
 
 using namespace std;
 namespace fs = std::filesystem;
-    
-class Employee;
+
+const fs::path employeeDir = "employees";
+
+/**
+ * @class Employee
+ *
+ * @description - This class is what handles all of the logic and data storage for employees
+ *
+ */
+class Employee {
+    int id;
+    short permissions;
+    string password;
+    fs::path file;
+
+public:
+    string firstName;
+    string lastName;
+    string username;
+
+    /**
+    * @function write
+    *
+    * @description - writes the current state of Employee to associated file. Will create file if not exists.
+    *  - Employee file will be named after the employee's id.
+    *  - File contents will be in the format of:
+    *  - id username firstName lastName password permissions
+    *
+    * @return bool - indicates the success or failure of writing to employeeFile     
+    *
+    */
+    bool write() {
+        ostringstream oss;
+        oss << this->id << ".txt";
+
+        this->file = employeeDir/oss.str();
+        
+        ofstream employeeFile;
+        employeeFile.open(oss.str(), ios::out | ios::trunc);
+
+        // Something went wrong while creating or opening the file, we need to return false;
+        if(!employeeFile) {
+            return false;
+        }
+        
+        oss.str(string());
+        oss << this->id << "," << this->username << "," << this->firstName << "," << this->lastName << "," << this->password << "," << this->permissions;
+
+        employeeFile << oss.str() << endl;  
+        
+        employeeFile.close();
+
+        return true;
+    }
+
+    /**
+     * @function isValidLogin
+     *
+     * @description - This function will check if the username and password provided are valid for the employee.
+     *
+     * @param string username - The username that the user has entered.
+     * @param string password - The password that the user has entered.
+     *
+     * @return bool - Returns true if the login is valid, false otherwise.
+     *
+     */
+    bool isValidLogin(string username, string password) {
+        return this->username == username && this->password == password;
+    }
+
+    /**
+    * @function from - static 
+    *
+    * @description - writes the current state of Employee to associated file. Will create file if not exists.
+    *
+    * @param file - file address of file that the employee will be built from.
+    * @param employee - Pointer to the instance of employee that will be written to if file reading succeeds
+    *
+    * @return bool - returns true if file reading and employee creation was successful, false otherwise. 
+    *
+    */
+    static bool from(fs::path employeeFile, Employee *employee) {
+        ifstream file;
+        file.open(employeeFile);
+
+        // Something has gone wrong with getting the file, so we return false
+        if(!file) {
+            return false;
+        }
+
+        string contents;
+        while(getline(file, contents)) {
+            istringstream iss(contents);
+
+            iss >> employee->id >> employee->username >> employee->firstName >> employee->lastName >> employee->password >> employee->permissions;
+        }
+
+        employee->file = employeeFile;
+
+        file.close();
+
+        return true;
+    }
+};
 
 void printScreenHeader(string screenName, int headerWidth = 44); 
-void generateInitialUsersVector(vector<Employee> employees);
 void initializeApplication(fs::path employeeDir, vector<Employee> &employees);
+bool login(string username, string password, vector<Employee> employees, Employee *employee);
 
 int main() {
     // This will be the dir we set employee files, as well as the vector that tracks the application employees.
-    const fs::path employeeDir = "employees";
     vector<Employee> employees;
-    
+    Employee employee;
+
     initializeApplication(employeeDir, employees);
 
     printScreenHeader("Welcome to FooBar Employee Management");
     cout << "***  Login to Continue  ***" << endl << endl;
     string username, password;
+
 
     while(true) {
         cout << "Username> ";
@@ -43,14 +148,14 @@ int main() {
         cout << "Password> ";
         getline(cin, password);
 
-        if(true) {
+        if(login(username, password, employees, &employee)) {
             break;  
         }
     }
 
-    cout << username << " " << password << endl;
+    cout << endl << "Welcome " << employee.firstName << " " << employee.lastName << "!" << endl;
 
-	return 0;
+    return 0;
 }
 
 /**
@@ -68,7 +173,7 @@ void printScreenHeader(string screenName, int headerWidth) {
     // We include 2 blank spaces on both sides horizontally, then we also want a blank line above and below screen.
     int lineCount = (int) ceil((float) screenName.length() / (headerWidth - 4));
     int height = max(lineCount +  2, 5);
-    
+
     // This is the index in which we need to start printing the screenName
     int startIndex = round(((float) height / 2) - floor(lineCount / 2)) - 1;
 
@@ -102,11 +207,6 @@ void printScreenHeader(string screenName, int headerWidth) {
     cout << endl;
 }
 
-// This may not actually not be needed anymore
-void generateInitialUsersVector(vector<Employee> employees) {
-    return; 
-}
-
 /**
 * @function initializeApplication 
 *
@@ -125,51 +225,36 @@ void initializeApplication(fs::path employeeDir, vector<Employee> &employees) {
         fs::create_directory(employeeDir);
         return;
     }
-    
+
     // Iterates through employee directory, will call Employee::from to get an instance of Employee to add to employees vector.
     for(const auto& employeeFile : fs::directory_iterator(employeeDir)) {
-        cout << employeeFile.path().stem().string() << endl;
+        Employee e;
+        Employee::from(employeeFile.path(), &e);
+
+        employees.push_back(e);
     }
 }
 
-class Employee {
-    int id;
-    short permissions;
-    string password;
-    fs::path file;
-
-public:
-    string name;
-    string username;
-
-    Employee(string employeeName, string employeeUsername, string employeePassword) {
-        name = employeeName;
+/**
+* @function login
+*
+* @description - This function will handle the login process for the application. 
+*
+* @param string username - The username that the user has entered.
+* @param string password - The password that the user has entered.
+* @param vector<Employee> employees - The vector of employees that the application is currently tracking.
+* @param Employee *employee - Pointer to the employee that will be written to if the login is successful.
+*
+* @return bool - Returns true if the login was successful, false otherwise.
+*
+*/
+bool login(string username, string password, vector<Employee> employees, Employee *employee) {
+    for(auto e : employees) {
+        if(e.isValidLogin(username, password)) {
+            *employee = e;
+            return true;
+        }
     }
 
-    /**
-    * @function write
-    *
-    * @description - writes the current state of Employee to associated file. Will create file if not exists.
-    *
-    * @return void
-    *
-    */
-    void write() {
-        return;
-    }
-
-    /**
-    * @function from - static 
-    *
-    * @description - writes the current state of Employee to associated file. Will create file if not exists.
-    *
-    * @param file - file address of file that the employee will be built from.
-    * @param employee - Pointer to the instance of employee that will be written to if file reading succeeds
-    *
-    * @return bool - returns true if file reading and employee creation was successful, false otherwise. 
-    *
-    */
-    static bool from(fs::path employeeFile, Employee *employee) {
-        return false;
-    }
-};
+    return false;
+}

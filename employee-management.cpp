@@ -16,17 +16,52 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdlib.h>
 
 using namespace std;
 namespace fs = std::filesystem;
 
 const fs::path employeeDir = "employees";
 
+/** 
+ * PERMISSION CONSTANTS 
+ * For now I have limited the permission system to these consts, but the permission value saved on employee supports more rigid control through bitwise operators.
+ * 
+ * Full permissions is 31 or 0b11111. This will allow users to Add, View, Seach, Modify, and Delete employees.
+ *  - For now there will not be a way to add direct full permissions, because you should trust no one by default. If you want people to be able to do everything, you need to walk that path fully.
+ *
+ * Permission Breakdown:
+ * 0
+ * b
+ * 1 - Allowed to delete employees, most destructive, highest permission.
+ * 1 - Allowed to create employees.
+ * 1 - Allowed to modify employees.
+ * 1 - Allowed to view all employee records.
+ * 1 - Allowed to view their own employee record.
+ *
+ */
+const short HR_PERMS = 28; // 0b11100
+const short MANAGEMENT_PERMS = 2; // 0b00010
+const short GENERAL_PERMS = 1; // 0b00001
+
 /**
  * @class Employee
  *
  * @description - This class is what handles all of the logic and data storage for employees
  *
+ * @prop private id int - id of employee
+ * @prop private permissions short - permissions of employee
+ * @prop private password string - password of employee
+ * @prop private file fs::path - file path of employee
+ * @prop public firstName string - first name of employee
+ * @prop public lastName string - last name of employee
+ * @prop public username string - username of employee
+ *
+ * @method public write - Writes the current state of Employee to associated file. Will create file if not exists.
+ * @method public isValidLogin - This function will check if the username and password provided are valid for the employee.
+ * @method public static from - This function will read the contents of the file provided and create an instance of Employee from it.
+ * @method public hasPermission - This function will check if the employee has the permission provided.
+ * 
  */
 class Employee {
     int id;
@@ -92,7 +127,7 @@ public:
     /**
     * @function from - static 
     *
-    * @description - writes the current state of Employee to associated file. Will create file if not exists.
+    * @description - This function will read the contents of the file provided and create an instance of Employee from it. 
     *
     * @param file - file address of file that the employee will be built from.
     * @param employee - Pointer to the instance of employee that will be written to if file reading succeeds
@@ -122,11 +157,27 @@ public:
 
         return true;
     }
+
+    /**
+     * @function hasPermission 
+     *
+     * @description - This function will check if the employee has the permission provided.
+     *
+     * @param short permission - The permission that we are checking if the employee has.
+     *
+     * @return bool - Returns true if the employee has the permission, false otherwise.
+     *
+     */
+    bool hasPermission(short permission) {
+        return (this->permissions & permission) != 0;
+    }
 };
 
+/* DECLARE FUNCTIONS */
 void printScreenHeader(string screenName, int headerWidth = 44); 
 void initializeApplication(fs::path employeeDir, vector<Employee> &employees);
 bool login(string username, string password, vector<Employee> employees, Employee *employee);
+void clearScreen();
 
 int main() {
     // This will be the dir we set employee files, as well as the vector that tracks the application employees.
@@ -134,7 +185,9 @@ int main() {
     Employee employee;
 
     initializeApplication(employeeDir, employees);
+    clearScreen();
 
+    /* START LOGIN */
     printScreenHeader("Welcome to FooBar Employee Management");
     cout << "***  Login to Continue  ***" << endl << endl;
     string username, password;
@@ -150,10 +203,41 @@ int main() {
         if(login(username, password, employees, &employee)) {
             break;  
         }
+
+        cout << endl << "Invalid login, please try again." << endl;
     }
 
-    cout << endl << "Welcome " << employee.firstName << " " << employee.lastName << "!" << endl;
+    clearScreen();
+    ostringstream oss;
 
+    oss << "Welcome " << employee.firstName << " " << employee.lastName << "!";
+    printScreenHeader(oss.str());
+    cout << "***  What do you need to do today?  ***" << endl << endl;
+
+    // TODO: This is a very basic menu, we need to expand this to be more dynamic and based on the permissions of the user.
+    if(employee.hasPermission(HR_PERMS) || employee.hasPermission(MANAGEMENT_PERMS)) {
+        cout << "1. View Employees" << endl;
+        cout << "2. Search Employees" << endl;
+    } 
+    if (employee.hasPermission(HR_PERMS)) {
+        cout << "3. Add Employee" << endl;
+        cout << "4. Remove Employee" << endl;
+    } 
+    if (employee.hasPermission(GENERAL_PERMS)) {
+        cout << "5. View Your File" << endl;
+    }
+    cout << "6. Exit" << endl << endl;
+
+    int choice;
+    cout << "Choice> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+
+    iss >> choice;
+
+    cout << "You chose " << choice;
+   
     return 0;
 }
 
@@ -187,7 +271,7 @@ void printScreenHeader(string screenName, int headerWidth) {
         // For now we are going to support one line, here we are going to build the line where we provide space around the word.
         if(i == startIndex) {
             string left(ceil((headerWidth - screenName.length()) / 2.0), ' ');
-            string right(left.length() - 1, ' ');
+            string right(headerWidth - (left.length() + screenName.length()), ' ');
             left[0] = '*';
             right[right.length() - 1] = '*';
 
@@ -256,4 +340,14 @@ bool login(string username, string password, vector<Employee> employees, Employe
     }
 
     return false;
+}
+
+void clearScreen() {
+#if defined _WIN32
+    system("cls");
+#elif defined (__LINUX__) || defined(__gnu_linux__) || defined(__linux__)
+    system("clear");
+#elif defined (__APPLE__)
+    system("clear");
+#endif
 }

@@ -236,8 +236,6 @@ int main() {
 
     iss >> choice;
 
-    cout << "You chose " << choice;
-   
     return 0;
 }
 

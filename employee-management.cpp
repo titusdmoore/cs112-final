@@ -17,6 +17,7 @@
 #include <memory>
 #include <sstream>
 #include <stdlib.h>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -26,6 +27,12 @@ namespace fs = std::filesystem;
 
 const fs::path EMPLOYEE_DIR = "employees";
 const short HEADER_WIDTH = 44;
+
+struct MenuOption {
+  short menuPosition;
+  string screenName;
+  string name;
+};
 
 /**
  * PERMISSION CONSTANTS
@@ -209,6 +216,37 @@ public:
   bool hasPermission(short permission) {
     return (this->permissions & permission) != 0;
   }
+
+  /**
+   * @function toString
+   *
+   * @description - Takes a strategy parameter and returns a string with the
+   * employee information.
+   *
+   * @param short mode - number value of what type of display
+   *  - 0 - Default, short list based display "id: First Last, Username"
+   *  - 1 - Page version of the display, that contains all the public
+   * information for a employee
+   *
+   *  @returns string - built string of display for the employee
+   */
+  string toString(short mode) {
+    ostringstream oss;
+
+    switch (mode) {
+    case 1:
+      oss << "ID: " << this->id << endl
+          << "Name: " << this->firstName << " " << this->lastName << endl
+          << "Username: " << this->username << endl;
+      break;
+    default:
+      oss << this->id << ": " << this->firstName << " " << this->lastName
+          << ", " << this->username << endl;
+      break;
+    }
+
+    return oss.str();
+  }
 };
 
 class Screen {
@@ -220,6 +258,8 @@ public:
   virtual ~Screen() = 0;
 
   void display() {
+    Screen::clearScreen();
+
     this->printScreenHeader();
     this->renderScreenBody();
     this->renderInteractiveContent();
@@ -236,7 +276,7 @@ public:
    *
    * @return void
    */
-  void printScreenHeader() {
+  virtual void printScreenHeader() {
     // To calc height we need to divide to find the number of lines needed, we
     // want a minimum of 5 lines. We include 2 blank spaces on both sides
     // horizontally, then we also want a blank line above and below screen.
@@ -307,18 +347,109 @@ public:
   }
 };
 
+class MenuScreen : public Screen {
+  Application *app;
+  vector<MenuOption> options;
+  bool optionsInitialized;
+
+public:
+  MenuScreen(Application *a) : app(a) {
+    this->name = "menu";
+    this->headerWidth = HEADER_WIDTH;
+    this->headerText = "testing";
+    this->optionsInitialized = false;
+  }
+
+  void prePrintHeader();
+  void renderInteractiveContent() override;
+  void buildMenuOptions();
+
+  void printScreenHeader() override {
+    this->prePrintHeader();
+
+    Screen::printScreenHeader();
+  }
+
+  void renderScreenBody() override {
+    cout << "***  What do you need to do today?  ***" << endl << endl;
+  }
+};
+
+class ListScreen : public Screen {
+  Application *app;
+
+public:
+  void renderInteractiveContent() override;
+  ListScreen(Application *a) : app(a) {
+    name = "list";
+    headerText = "Viewing All Employees";
+    headerWidth = HEADER_WIDTH;
+  }
+
+  void renderScreenBody() override {
+    cout << "***  Insert Id of Employee to Edit/View  ***" << endl << endl;
+  }
+};
+
+class AddEmployeeScreen : public Screen {
+  Application *app;
+
+public:
+  void renderInteractiveContent() override;
+  AddEmployeeScreen(Application *a) : app(a) {
+    name = "add";
+    headerText = "Add a new Employee";
+    headerWidth = HEADER_WIDTH;
+  }
+
+  void renderScreenBody() override {
+    cout << "*** Answer prompts to add new employee.  ***" << endl << endl;
+  };
+};
+
+class FileScreen : public Screen {
+  Application *app;
+
+public:
+  void renderInteractiveContent() override;
+  FileScreen(Application *a) : app(a) {
+    name = "file";
+    headerText = "Viewing Your Profile";
+    headerWidth = HEADER_WIDTH;
+  }
+
+  void renderScreenBody() override{};
+};
+
 class Application {
   Employee employee;
   unordered_map<string, unique_ptr<Screen>> screens;
-  vector<Employee> employees;
 
   void loadScreens() {
     unique_ptr<Screen> loginScreen = std::make_unique<LoginScreen>(this);
     this->screens[loginScreen->name] = std::move(loginScreen);
+
+    unique_ptr<Screen> menuScreen = std::make_unique<MenuScreen>(this);
+    this->screens[menuScreen->name] = std::move(menuScreen);
+
+    unique_ptr<Screen> listScreen = std::make_unique<ListScreen>(this);
+    this->screens[listScreen->name] = std::move(listScreen);
+
+    unique_ptr<Screen> addEmployeeScreen =
+        std::make_unique<AddEmployeeScreen>(this);
+    this->screens[addEmployeeScreen->name] = std::move(addEmployeeScreen);
+
+    unique_ptr<Screen> fileScreen = std::make_unique<FileScreen>(this);
+    this->screens[fileScreen->name] = std::move(fileScreen);
   }
 
 public:
+  vector<Employee> employees;
+  int currentId;
+
   Application() {
+    this->currentId = 1;
+
     // We check if path exists and if not, we create. If we get into the if we
     // can return becuase we know that there are no employee files.
     if (!fs::exists(EMPLOYEE_DIR)) {
@@ -338,6 +469,16 @@ public:
       Employee e;
       Employee::from(employeeFile.path(), &e);
 
+      try {
+        int id = stoi(employeeFile.path().stem());
+
+        if (id > this->currentId) {
+          this->currentId = id;
+        }
+      } catch (...) {
+        cout << "Invalid file name." << endl;
+      }
+
       employees.push_back(e);
     }
 
@@ -356,19 +497,23 @@ public:
   void start() { this->screens.at("login")->display(); }
 
   /**
-   * @function start
+   * @function navigateToScreen
    *
-   * @description - This function is run after everything has been setup, and
-   * handles loading the first screen.
+   * @description - This function handles looking up a screen by key (name) and
+   * printing it.
+   *
+   * @param screeenName string - The key of the screen to display.
    *
    * @return void
    *
    */
   void navigateToScreen(string screenName) {
     if (this->screens.count(screenName) != 0) {
-      this->screens.at(screenName);
+      this->screens.at(screenName)->display();
     }
   }
+
+  Employee *getLoggedInEmployee() { return &this->employee; }
 
   /**
    * @function login
@@ -412,44 +557,211 @@ void LoginScreen::renderInteractiveContent() {
 
     cout << endl << "Invalid login, please try again." << endl;
   }
+
+  // We are successful, request next screen.
+  this->app->navigateToScreen("menu");
+}
+
+void MenuScreen::prePrintHeader() {
+  const Employee *employee = app->getLoggedInEmployee();
+  ostringstream oss;
+
+  oss << "Welcome " << employee->firstName << " " << employee->lastName << "!";
+  this->headerText = oss.str();
+}
+
+void MenuScreen::buildMenuOptions() {
+  Employee *employee = app->getLoggedInEmployee();
+  string screens[5][2] = {{"list", "View Employees"},
+                          {"search", "Search Employees"},
+                          {"add", "Add Employee"},
+                          {"remove", "Remove Employee"},
+                          {"file", "View Your File"}};
+
+  for (int i = 0; i < 5; ++i) {
+    switch (i) {
+    case 0:
+    case 1:
+      if (employee->hasPermission(HR_PERMS) ||
+          employee->hasPermission(MANAGEMENT_PERMS)) {
+        MenuOption newOption;
+        newOption.name = screens[i][1];
+        newOption.menuPosition = this->options.size() + 1;
+        newOption.screenName = screens[i][0];
+
+        this->options.push_back(newOption);
+      }
+      break;
+    case 2:
+    case 3:
+      if (employee->hasPermission(HR_PERMS)) {
+        MenuOption newOption;
+        newOption.name = screens[i][1];
+        newOption.menuPosition = this->options.size() + 1;
+        newOption.screenName = screens[i][0];
+
+        this->options.push_back(newOption);
+      }
+      break;
+    default:
+      if (employee->hasPermission(GENERAL_PERMS)) {
+        MenuOption newOption;
+        newOption.name = screens[i][1];
+        newOption.menuPosition = this->options.size() + 1;
+        newOption.screenName = screens[i][0];
+
+        this->options.push_back(newOption);
+      }
+    }
+  }
+
+  this->optionsInitialized = true;
+}
+
+void MenuScreen::renderInteractiveContent() {
+  if (!this->optionsInitialized) {
+    this->buildMenuOptions();
+  }
+
+  for (auto o : this->options) {
+    cout << o.menuPosition << ". " << o.name << endl;
+  }
+
+  cout << endl << "0. Exit Application" << endl << endl;
+
+  int choice;
+  while (true) {
+    cout << "Choice> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+    iss >> choice;
+
+    if (choice == 0 ||
+        (!iss.fail() && (choice > 0 && choice - 1 < this->options.size()))) {
+      break;
+    }
+
+    cout << endl << "Please input a valid option." << endl;
+  }
+
+  if (choice == 0) {
+    return;
+  }
+
+  cout << this->options.at(choice - 1).screenName << endl;
+  this->app->navigateToScreen(this->options.at(choice - 1).screenName);
+}
+
+void ListScreen::renderInteractiveContent() {
+  for (auto e : this->app->employees) {
+    cout << e.toString(0);
+  }
+
+  cout << endl << "0. Return to Menu" << endl << endl;
+
+  int id;
+  while (true) {
+    cout << "Choice> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+    iss >> id;
+
+    if (!iss.fail()) {
+      break;
+    }
+
+    cout << endl << "ID must be of type int." << endl;
+  }
+
+  if (id == 0) {
+    this->app->navigateToScreen("menu");
+  }
+}
+
+void AddEmployeeScreen::renderInteractiveContent() {
+  string firstName, lastName, username, password;
+  int isHR, isMan;
+
+  cout << "First Name> ";
+  cin >> firstName;
+
+  cout << "Last Name> ";
+  cin >> lastName;
+
+  cout << "Username> ";
+  cin >> username;
+  // Validate unique username
+
+  cout << "Password> ";
+  cin >> password;
+
+  while (true) {
+    cout << "Is employee hr? (0: no, 1: yes)> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+    iss >> isHR;
+
+    if (!iss.fail() && (isHR == 0 || isHR == 1)) {
+      break;
+    }
+
+    cout << endl << "Please input a valid option." << endl;
+  }
+
+  while (true) {
+    cout << "Is employee management? (0: no, 1: yes)> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+    iss >> isMan;
+
+    if (!iss.fail() && (isMan == 0 || isMan == 1)) {
+      break;
+    }
+
+    cout << endl << "Please input a valid option." << endl;
+  }
+
+  this->app->currentId++;
+  Employee e(this->app->currentId, firstName, lastName, username, password,
+             (HR_PERMS * isHR) | (MANAGEMENT_PERMS * isMan) | GENERAL_PERMS);
+  e.write();
+  this->app->employees.push_back(e);
+
+  this->app->navigateToScreen("menu");
+}
+
+void FileScreen::renderInteractiveContent() {
+  cout << this->app->getLoggedInEmployee()->toString(1);
+
+  cout << endl << "0. Return to Menu" << endl << endl;
+
+  int id;
+  while (true) {
+    cout << "Choice> ";
+    string input;
+    cin >> input;
+    istringstream iss(input);
+    iss >> id;
+
+    if (!iss.fail()) {
+      break;
+    }
+
+    cout << endl << "ID must be of type int." << endl;
+  }
+
+  if (id == 0) {
+    this->app->navigateToScreen("menu");
+  }
 }
 
 int main() {
-  Screen::clearScreen();
   Application app;
   app.start();
-
-  //
-  // ostringstream oss;
-  //
-  // oss << "Welcome " << employee.firstName << " " << employee.lastName << "!";
-  // printScreenHeader(oss.str());
-  // cout << "***  What do you need to do today?  ***" << endl << endl;
-  //
-  // // TODO: This is a very basic menu, we need to expand this to be more
-  // dynamic
-  // // and based on the permissions of the user.
-  // if (employee.hasPermission(HR_PERMS) ||
-  //     employee.hasPermission(MANAGEMENT_PERMS)) {
-  //   cout << "1. View Employees" << endl;
-  //   cout << "2. Search Employees" << endl;
-  // }
-  // if (employee.hasPermission(HR_PERMS)) {
-  //   cout << "3. Add Employee" << endl;
-  //   cout << "4. Remove Employee" << endl;
-  // }
-  // if (employee.hasPermission(GENERAL_PERMS)) {
-  //   cout << "5. View Your File" << endl;
-  // }
-  // cout << "6. Exit" << endl << endl;
-  //
-  // int choice;
-  // cout << "Choice> ";
-  // string input;
-  // cin >> input;
-  // istringstream iss(input);
-  //
-  // iss >> choice;
 
   return 0;
 }
